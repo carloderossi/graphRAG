@@ -1,0 +1,33 @@
+[project]
+name = "graph-rag-semantic"
+version = "1.1.0"
+description = "Semantic GraphRAG for EU and Swiss AI Regulations using Ollama"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31.0",
+    "numpy>=1.26.0",
+    "ollama>=0.1.6",
+    "langchain-text-splitters>=0.0.1",
+    "pypdf>=4.0.0",
+    "scikit-learn>=1.4.0",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "ipykernel>=6.29.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# for sources under src, use "uv init graph-rag-semantic"
+# graph-rag-semantic/
+#    pyproject.toml
+#    README.md
+#    src/
+#        graph_rag_semantic/
+#            __init__.py
+[tool.hatch.build.targets.wheel]
+packages = ["graph_rag_semantic"]

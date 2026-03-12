@@ -54,8 +54,8 @@ def call_llm_for_kg(chunk_text: str) -> Dict[str, Any]:
     This is a stub – plug in your actual client (Ollama, Azure, etc.).
     """
     system_prompt = (
-        "You are an expert in European and Swiss AI regulation. "
-        "You extract a structured knowledge graph from legal text. "
+        "You are an expert in European and Swiss AI regulation."
+        "You extract a structured knowledge graph from legal text."
         "Focus on obligations, actors, AI systems, and how they relate to regulations."
     )
 
@@ -83,7 +83,6 @@ Relation types (type field):
 - SUPERVISED_BY     (Provider/User/AI_System → Authority)
 
 Return a single JSON object with this structure:
-
 {{
   "entities": [
     {{"local_id": "e1", "name": "...", "type": "..."}},
@@ -105,7 +104,7 @@ Text chunk:
 \"\"\"{chunk_text}\"\"\"
 """
 
-    # --- PSEUDOCODE: replace with your actual LLM call ---
+    # --- LLM call ---
     try:
         # Generate Summary with 7B Model
         response = ollama.generate(
@@ -127,11 +126,7 @@ Text chunk:
         # exc_type, exc_value, exc_tb = sys.exc_info()
         # print("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
         raise e        
-    # response = llm_client.chat(system=system_prompt, user=user_prompt)
-    # parsed = json.loads(response)
-    # return parsed
     # ------------------------------------------------------
-    #raise NotImplementedError("Implement call_llm_for_kg with your LLM client.")
 
 def load_chunks(path: Path) -> Dict[str, Dict[str, Any]]:
     print(f"Loading chunks from {path}...")
@@ -145,7 +140,7 @@ def main():
     print(f"Successfully loaded {len(chunks)} chunks.")
 
     i=0
-    print("Calling SLM for generating Knowledge Graph...", end=" ", flush=True)
+    print("Calling SLM for generating Knowledge Graph...\n", end=" ", flush=True)
     with OUTPUT_JSONL_PATH.open("w", encoding="utf-8") as out_f:
         for chunk_id, c in chunks.items():
             text = c.get("text", "")
@@ -153,7 +148,7 @@ def main():
             if i % 10 == 0:
                 print("•", end="", flush=True)   # bullet every 10
                 # clean up ollama cache
-                #ollama.generate(model=MODELS["slm"], prompt="", options={"reset": True})
+                #ollama.generate(model=MODELS["slm"], prompt="", options={"reset": True}) # reset may not be supported
             else:
                 print(".", end="", flush=True)
 
@@ -170,7 +165,7 @@ def main():
             out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
             i=i+1
 
-    print(f"Wrote KG triples to {OUTPUT_JSONL_PATH}")
+    print(f"\nWrote KG triples to {OUTPUT_JSONL_PATH}.")
 
 if __name__ == "__main__":
     main()

@@ -165,6 +165,7 @@ def build_communities(chunks):
             "member_ids": [m["id"] for m in community_members],
             "sample_text": "\n---\n".join([m["text"] for m in community_members[:4]]) # Top 4 for LLM
         })
+    print(f"Returning {len(communities)} communities.")
     return communities
 
 # --- 3. GLOBAL SUMMARIZATION & GLOBAL EMBEDDING ---
@@ -212,6 +213,8 @@ def summarize_and_index_communities(communities):
             report = json.loads(response['response'])
             if i % 10 == 0:
                 print("•", end="", flush=True)   # bullet every 10
+                # clean up ollama cache
+                ollama.generate(model=MODELS["slm"], prompt="", options={"reset": True})
             else:
                 print(".", end="", flush=True)
             comm["metadata"] = report
@@ -238,6 +241,7 @@ def summarize_and_index_communities(communities):
         
             # Clean up temporary text
             del comm["sample_text"]
+
         except Exception as e:
             print(f"Get error for report {report}")
             traceback.print_exc()

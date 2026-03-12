@@ -1,0 +1,18 @@
+[project]
+name = "graphrag"
+version = "1.0.0"
+description = "Graph RAG lab"
+requires-python = ">=3.10"
+dependencies = [
+
+]
+
+[tool.uv.workspace]
+members = [
+    "graph-rag-compare",
+    "graph-rag-semantic"
+]
+
+[tool.uv.sources]
+graph-rag-compare = { workspace = true }
+graph-rag-semantic = { workspace = true }

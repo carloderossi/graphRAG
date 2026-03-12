@@ -269,10 +269,12 @@ if __name__ == "__main__":
         "communities": communities_data
     }
    
-    with open("ai_reg_semantic_index.json", "w") as f:
+    
+    filename = "ai_reg_semantic_index.json"
+    with open(filename, "w") as f:
         json.dump(final_index, f, indent=2)
    
     print("\nSUCCESS: Semantic Index Created.")
-    print("File saved: ai_reg_semantic_index.json")
+    print(f"File saved: {filename}")
 
 

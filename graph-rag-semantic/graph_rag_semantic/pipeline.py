@@ -5,17 +5,21 @@
  * Global Embeddings: The reports themselves are embedded, allowing you to search for themes rather than just keywords.
  """
 import os
-import json
 import re
+import traceback
+
 import numpy as np
+import json
+from pypdf import PdfReader
+
+from sklearn.cluster import KMeans
+
 import ollama
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sklearn.cluster import KMeans
 from langchain_experimental.text_splitter import SemanticChunker
 # from langchain_community.embeddings import OllamaEmbeddings
 from langchain_ollama import OllamaEmbeddings
-from pypdf import PdfReader
-from sklearn.cluster import KMeans
 
 # The Corpus: EU (Horizontal), CoE (Treaty), and Switzerland (FADP + Guidelines)
 SOURCES = {
@@ -165,7 +169,8 @@ def build_communities(chunks):
 
 # --- 3. GLOBAL SUMMARIZATION & GLOBAL EMBEDDING ---
 def summarize_and_index_communities(communities):
-    print("Generating Community Reports and Global Embeddings...")
+    print("Generating Community Reports and Global Embeddings...", end=" ", flush=True)
+    i=0
     for comm in communities:
         prompt = f"""
         Analyze these legal snippets and provide a structured JSON report:
@@ -181,33 +186,64 @@ def summarize_and_index_communities(communities):
         If unsure, guess based on the snippets:
         {comm['sample_text']}
         """
-        # Generate Summary with 7B Model
-        response = ollama.generate(model=MODELS["slm"], prompt=prompt, format="json")
-        report = json.loads(response['response'])
-        print(report)
-        comm["metadata"] = report
-       # Normalize findings into a list of strings
-        normalized = []
-        for item in report.get("findings", []):
-            if isinstance(item, str):
-                normalized.append(item)
-            elif isinstance(item, dict):
-                # take the first value or convert dict to readable string
-                if len(item) == 1:
-                    normalized.append(list(item.values())[0])
-                else:
-                    normalized.append(", ".join(f"{k}: {v}" for k, v in item.items()))
-            else:
-                normalized.append(str(item))
+        schema = {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "summary": {"type": "string"},
+                "findings": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 3,
+                    "maxItems": 3
+                }
+            },
+            "required": ["title", "summary", "findings"]
+        }
 
-        report["findings"] = normalized
-        # EMBED THE SUMMARY (This is your Global Search Tier)
-        summary_combined = f"{report['title']} {report['summary']} {' '.join(report['findings'])}"
-        res = ollama.embeddings(model=MODELS["embed"], prompt=f"search_document: {summary_combined}")
-        comm["community_embedding"] = res["embedding"]
-       
-        # Clean up temporary text
-        del comm["sample_text"]
+        try:
+            # Generate Summary with 7B Model
+            response = ollama.generate(
+                model=MODELS["slm"], 
+                prompt=prompt, 
+                format=schema, #"json", 
+                options={"temperature": 0}
+            )
+            report = json.loads(response['response'])
+            if i % 10 == 0:
+                print("•", end="", flush=True)   # bullet every 10
+            else:
+                print(".", end="", flush=True)
+            comm["metadata"] = report
+            i=i+1
+            # Normalize findings into a list of strings
+            normalized = []
+            for item in report.get("findings", []):
+                if isinstance(item, str):
+                    normalized.append(item)
+                elif isinstance(item, dict):
+                    # take the first value or convert dict to readable string
+                    if len(item) == 1:
+                        normalized.append(list(item.values())[0])
+                    else:
+                        normalized.append(", ".join(f"{k}: {v}" for k, v in item.items()))
+                else:
+                    normalized.append(str(item))
+
+            report["findings"] = normalized
+            # EMBED THE SUMMARY (This is your Global Search Tier)
+            summary_combined = f"{report['title']} {report['summary']} {' '.join(report['findings'])}"
+            res = ollama.embeddings(model=MODELS["embed"], prompt=f"search_document: {summary_combined}")
+            comm["community_embedding"] = res["embedding"]
+        
+            # Clean up temporary text
+            del comm["sample_text"]
+        except Exception as e:
+            print(f"Get error for report {report}")
+            traceback.print_exc()
+            # exc_type, exc_value, exc_tb = sys.exc_info()
+            # print("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
+            raise e
 
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":

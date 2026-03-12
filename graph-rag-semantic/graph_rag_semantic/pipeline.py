@@ -6,19 +6,16 @@
  """
 import os
 import json
-import requests
+import re
 import numpy as np
 import ollama
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from sklearn.cluster import KMeans
+from langchain_experimental.text_splitter import SemanticChunker
+# from langchain_community.embeddings import OllamaEmbeddings
+from langchain_ollama import OllamaEmbeddings
 from pypdf import PdfReader
 from sklearn.cluster import KMeans
-
-# --- CONFIGURATION ---
-# Using 7B class for reasoning and Nomic for the 8k context window
-MODELS = {
-    "embed": "nomic-embed-text",
-    "slm": "llama3.1:8b"
-}
 
 # The Corpus: EU (Horizontal), CoE (Treaty), and Switzerland (FADP + Guidelines)
 SOURCES = {
@@ -28,26 +25,94 @@ SOURCES = {
     "Swiss_AI_Guidelines": "https://www.sbfi.admin.ch/dam/sbfi/en/dokumente/2020/11/leitlinien-ki.pdf"
 }
 
+    # [GIN] 2026/03/12 - 09:09:18 | 200 |     86.0213ms |       127.0.0.1 | POST     "/api/embeddings"
+    # time=2026-03-12T09:09:20.962+01:00 level=WARN source=types.go:571 msg="invalid option provided" option=tfs_z
+    # time=2026-03-12T09:09:20.962+01:00 level=WARN source=types.go:571 msg="invalid option provided" option=mirostat_eta
+    # time=2026-03-12T09:09:20.962+01:00 level=WARN source=types.go:571 msg="invalid option provided" option=mirostat_tau
+    # time=2026-03-12T09:09:20.962+01:00 level=WARN source=types.go:571 msg="invalid option provided" option=mirostat
+
+# --- CONFIGURATION ---
+# Using 7B class for reasoning and mxbai-embed-large
+MODELS = {
+    "embed": "mxbai-embed-large:latest", # nomic-embed-text --> does not support batch embedding 
+    "slm": "llama3.1:8b"
+}
+
+def get_semantic_chunks(path):
+    print(f"Semantically chunking {path}...")
+
+    # 1. Load PDF text
+    reader = PdfReader(path)
+    text = "".join([p.extract_text() or "" for p in reader.pages]).strip()
+
+    if len(text) < 200:
+        print("PDF extraction returned too little text — falling back to raw text.")
+        return [text]
+
+    # 2. Robust segmentation: split on paragraphs OR sentences OR fallback
+    segments = re.split(r"\n\n+|\. ", text)
+    segments = [s.strip() for s in segments if len(s.strip()) > 50]
+
+    # Fallback if segmentation failed
+    if len(segments) < 3:
+        print("Too few segments — falling back to fixed-size chunks.")
+        return [text[i:i+800] for i in range(0, len(text), 800)]
+
+    # 3. Embedder (single-sequence)
+    embedder = OllamaEmbeddings(model=MODELS["embed"])
+
+    embeddings = [np.array(embedder.embed_query(seg)) for seg in segments]
+
+    # 4. Compute similarities
+    sims = []
+    for i in range(1, len(embeddings)):
+        a, b = embeddings[i-1], embeddings[i]
+        sim = np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+        sims.append(sim)
+
+    # Fallback if similarity cannot be computed
+    if len(sims) == 0:
+        print("Similarity array empty — falling back to fixed-size chunks.")
+        return [text[i:i+800] for i in range(0, len(text), 800)]
+
+    # 5. Semantic breakpoints
+    threshold = np.percentile(sims, 25)
+
+    chunks = []
+    current = [segments[0]]
+
+    for i in range(1, len(segments)):
+        if sims[i-1] < threshold:
+            chunks.append(" ".join(current))
+            current = []
+        current.append(segments[i])
+
+    if current:
+        chunks.append(" ".join(current))
+
+    return [c for c in chunks if len(c.strip()) > 80]
+
 # --- 1. DATA ACQUISITION & CHUNKING ---
 def setup_corpus():
     all_chunks = []
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1200,
-        chunk_overlap=200,
-        separators=["\nArt. ", "\nSection ", "\n\n", ". "]
-    )
+    # splitter = RecursiveCharacterTextSplitter(
+    #     chunk_size=1200,
+    #     chunk_overlap=200,
+    #     separators=["\nArt. ", "\nSection ", "\n\n", ". "]
+    # )
 
     for name, url in SOURCES.items():
-        path = f"{name}.pdf"
+        path = f"../docs/{name}.pdf"
         if not os.path.exists(path):
-            print(f"Downloading {name}...")
-            r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with open(path, 'wb') as f: f.write(r.content)
+            print(f"Document {name} does not exist!")
+            raise Exception(f"Document {name} does not exist!")
+            # r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+            # with open(path, 'wb') as f: f.write(r.content)
        
         print(f"Chunking {name}...")
-        reader = PdfReader(path)
-        text = "".join([p.extract_text() for p in reader.pages])
-        doc_chunks = splitter.split_text(text)
+        #reader = PdfReader(path)
+        #text = "".join([p.extract_text() for p in reader.pages])
+        doc_chunks = get_semantic_chunks(path) #splitter.split_text(text)
        
         for i, content in enumerate(doc_chunks):
             all_chunks.append({

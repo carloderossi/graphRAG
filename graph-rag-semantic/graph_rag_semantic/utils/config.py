@@ -19,8 +19,6 @@ from pathlib import Path
 EMBED_MODEL = "mxbai-embed-large:latest"
 LLM_MODEL = "llama3.1:8b"
 
-CHROMA_PATH = "chroma"
-
 current_file = Path(__file__).resolve()
 
 def get_project_root():
@@ -52,11 +50,11 @@ def get_abs_config_path(cfg_path):
     return abs_path
 
 def get_chroma_db_path():
-    return current_file.parents[1] / CHROMA_PATH
+    return current_file.parents[1] / "chroma"
 
 def get_docs_folder():
     return current_file.parents[3] / "docs"
 
 SEMANTIC_INDEX_PATH = get_docs_folder() / "ai_reg_semantic_index.json"
 KG_PATH = get_docs_folder() / "reg_kg_triples_repaired.jsonl"
-
+CHROMA_PATH = get_chroma_db_path()

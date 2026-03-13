@@ -1,8 +1,15 @@
 import json
-import ollama
-import chromadb
-from utils.config import EMBED_MODEL, LLM_MODEL, SEMANTIC_INDEX_PATH, KG_PATH, get_chroma_db_path
 from collections import defaultdict
+import chromadb
+import ollama
+
+from utils.config import (
+    CHROMA_PATH,
+    SEMANTIC_INDEX_PATH,
+    KG_PATH,
+    EMBED_MODEL,
+    LLM_MODEL,
+)
 
 # ------------------------------
 # OLLAMA HELPERS
@@ -66,13 +73,20 @@ for c in communities:
 # LOAD CHROMA DB
 # ------------------------------
 
-chroma_db_path = get_chroma_db_path()
-client = chromadb.PersistentClient(path=chroma_db_path)
+client = chromadb.PersistentClient(path=CHROMA_PATH)
 collection = client.get_collection("reg_chunks")
 
 # ------------------------------
 # GRAPH-AWARE RETRIEVAL
 # ------------------------------
+
+OBLIGATION_REL_TYPES = {
+    "MUST_COMPLY_WITH",
+    "REQUIRES",
+    "PROHIBITED",
+    "IS_PART_OF",
+    "APPLIES_TO",
+}
 
 def get_neighbors(chunk_id):
     obj = kg_by_chunk.get(chunk_id)
@@ -94,6 +108,17 @@ def get_neighbors(chunk_id):
         })
 
     return neighbors
+
+def filter_graph_facts(neighbors, actor_terms):
+    facts = []
+    for n in neighbors:
+        if n["type"] not in OBLIGATION_REL_TYPES:
+            continue
+        s_name = n["source"]["name"]
+        t_name = n["target"]["name"]
+        if any(a.lower() in s_name.lower() or a.lower() in t_name.lower() for a in actor_terms):
+            facts.append(f"{s_name} -[{n['type']}]-> {t_name}")
+    return facts
 
 def graph_aware_retrieve(query, top_k=5):
     q_emb = embed(query)
@@ -129,55 +154,75 @@ def get_community_summary(cid):
     c = community_by_id.get(cid)
     if not c:
         return None
-    return c["metadata"]
+    return c.get("metadata", {})
 
 # ------------------------------
-# STRICT OBLIGATION-FOCUSED ANSWER
+# STRICT OBLIGATION-FOCUSED PROMPT
 # ------------------------------
 
 STRICT_PROMPT = """
 You are a regulatory compliance analyst.
 
-Your task:
+Use ONLY:
+- Retrieved chunks
+- Community summaries
+- Graph facts
+
+Task:
 - Extract ONLY obligations, duties, prohibitions, and requirements.
-- Focus specifically on the actor mentioned in the user question.
-- Use ONLY the provided text, community summaries, and graph facts.
-- If the text does not support a claim, say "Not supported by retrieved text."
+- Focus on the actor(s) mentioned in the user question.
+- Do NOT invent obligations.
+- If something is not supported by the text, say: "Not supported by retrieved text."
 
 Format:
-1. Direct obligations
+1. Direct obligations (bullet list)
 2. Conditions / exceptions
 3. Related actors (from graph facts)
 4. Citations (chunk IDs)
 """
 
-def ask(query, top_k=5):
+def extract_actor_terms(question: str):
+    # very simple heuristic; you can extend this
+    candidates = ["provider", "user", "deployer", "high-risk", "ai system", "swiss actors"]
+    return [c for c in candidates if c.lower() in question.lower()]
+
+def ask(query, top_k=5, debug=True):
+    actor_terms = extract_actor_terms(query)
     hits = graph_aware_retrieve(query, top_k=top_k)
 
-    # Print internals for debugging
-    print("\n=== Retrieved Chunks ===")
-    for h in hits:
-        print(f"- {h['meta']['chunk_id']}")
+    if debug:
+        print("\n=== Retrieved Chunks ===")
+        for h in hits:
+            print(f"- {h['meta']['chunk_id']}")
 
-    print("\n=== Graph Facts ===")
-    for h in hits:
-        for n in h["neighbors"]:
-            print(f"{n['source']['name']} -[{n['type']}]-> {n['target']['name']}")
+    # community summaries
+    community_ids = {h["community_id"] for h in hits if h["community_id"] is not None}
+    community_summaries = {
+        cid: get_community_summary(cid) for cid in community_ids
+    }
 
-    # Build context
+    # graph facts (filtered)
+    all_graph_facts = []
+    for h in hits:
+        facts = filter_graph_facts(h["neighbors"], actor_terms or ["provider", "user", "deployer"])
+        all_graph_facts.extend(facts)
+
+    if debug:
+        print("\n=== Graph Facts (filtered) ===")
+        for f in all_graph_facts:
+            print(f)
+
+    # build context
     chunk_texts = "\n\n".join(
         f"[{h['meta']['chunk_id']}]\n{h['text']}" for h in hits
     )
 
-    community_ids = {h["community_id"] for h in hits if h["community_id"] is not None}
     community_text = "\n\n".join(
-        f"[Community {cid}] {get_community_summary(cid)}" for cid in community_ids
+        f"[Community {cid}] title={meta.get('title')}\nsummary={meta.get('summary')}\nfindings={meta.get('findings')}"
+        for cid, meta in community_summaries.items()
     )
 
-    graph_facts = "\n".join(
-        f"{n['source']['name']} -[{n['type']}]-> {n['target']['name']}"
-        for h in hits for n in h["neighbors"]
-    )
+    graph_text = "\n".join(all_graph_facts)
 
     prompt = f"""
 {STRICT_PROMPT}
@@ -192,7 +237,7 @@ Community summaries:
 {community_text}
 
 Graph facts:
-{graph_facts}
+{graph_text}
 
 Provide a structured, obligation-focused answer.
 """

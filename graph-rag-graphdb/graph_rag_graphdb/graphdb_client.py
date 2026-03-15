@@ -54,20 +54,33 @@ def expand_graph(chunk_ids):
     # RETURN c.id AS chunk_id, e.name AS entity, e.type AS type,
     #        type(r) AS rel_type, t.name AS target
     # """
-    query = """
-    MATCH (c:Chunk)-[:MENTIONS]->(e:Entity)
-    WHERE c.id IN $chunk_ids
-    AND e.type = "Provider"
+    # query = """
+    # MATCH (c:Chunk)-[:MENTIONS]->(e:Entity)
+    # WHERE c.id IN $chunk_ids
+    # AND e.type = "Provider"
 
-    MATCH (e)-[r:RELATION]->(t:Entity)
+    # MATCH (e)-[r:RELATION]->(t:Entity)
+    # WHERE r.type STARTS WITH "MUST"
+
+    # RETURN
+    #     c.id AS chunk_id,
+    #     e.name AS provider,
+    #     r.type AS obligation,
+    #     t.name AS target
+    # ORDER BY chunk_id, obligation;
+    # """
+    query = """
+    MATCH (c:Chunk)-[:MENTIONS]->(prov:Entity {type: "Provider"})
+    WHERE c.id IN $chunk_ids
+
+    MATCH (prov)-[r:RELATION]->(t:Entity)
     WHERE r.type STARTS WITH "MUST"
 
     RETURN
-        c.id AS chunk_id,
-        e.name AS provider,
+        prov.name AS provider,
         r.type AS obligation,
         t.name AS target
-    ORDER BY chunk_id, obligation;
+    ORDER BY obligation;
     """
     with driver.session() as session:
         return session.run(query, chunk_ids=chunk_ids).data()

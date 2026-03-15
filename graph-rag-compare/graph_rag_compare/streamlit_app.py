@@ -15,7 +15,7 @@ query = st.text_input("Enter your question")
 
 if st.button("Run"):
     file = FileRetriever("../graph-rag-semantic/ai_reg_semantic_index.json")
-    db = GraphDBRetriever("bolt://localhost:7687", "neo4j", "password")
+    db = GraphDBRetriever("bolt://localhost:7687", "neo4j", "password123")
 
     runner = ComparisonRunner(file, db, llm=None)  # plug your LLM wrapper
     results = runner.run(query, query_embedding=None)  # plug embedding

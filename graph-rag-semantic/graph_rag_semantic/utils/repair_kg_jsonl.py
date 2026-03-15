@@ -1,69 +1,138 @@
 import json
 from pathlib import Path
+from collections import Counter
 
-def repair_jsonl(path, out_path):
-    repaired = []
+# repair_jsonl("./docs/reg_kg_triples.jsonl", "./graph-rag-semantic/reg_kg_triples_repaired.jsonl")
+INPUT_PATH = Path("./docs/reg_kg_triples.jsonl")
+OUTPUT_PATH = Path("./docs/reg_kg_triples_repaired.jsonl")
+LOG_PATH = Path("reg_kg_triples_repair_log.json")
 
-    with open(path, "r", encoding="utf-8") as f:
-        for line_no, line in enumerate(f, start=1):
-            obj = json.loads(line)
+ALLOWED_ENTITY_TYPES = {
+    "AI_System",
+    "High_Risk_System",
+    "Provider",
+    "User",
+    "Regulation",
+    "Obligation",
+    "Process",
+    "Authority",
+}
 
-            entities = obj["entities"]
-            relations = obj["relations"]
+ALLOWED_RELATION_TYPES = {
+    "REQUIRES",
+    "MUST_COMPLY_WITH",
+    "IS_DEFINED_IN",
+    "IS_PART_OF",
+    "APPLIES_TO",
+    "SUPERVISED_BY",
+}
 
-            # Build lookup maps
-            id_map = {e["local_id"]: e for e in entities}
-            name_map = {e["name"]: e["local_id"] for e in entities}
+def infer_regulation_from_text(text: str):
+    """Very simple heuristic; extend as needed."""
+    t = text.lower()
+    if "eu ai act" in t:
+        return "EU AI Act"
+    if "swiss fadp" in t:
+        return "Swiss FADP"
+    if "coe ai convention" in t:
+        return "CoE AI Convention"
+    if "ai act" in t:
+        return "EU AI Act"
+    return None
 
-            next_id_num = len(entities) + 1
+def repair_record(obj, stats):
+    entities = obj.get("entities", [])
+    relations = obj.get("relations", [])
+    text = obj.get("text", "")
 
-            fixed_relations = []
-            for rel in relations:
-                src = rel["source_local_id"]
-                tgt = rel["target_local_id"]
+    # 1) Drop malformed entities
+    cleaned_entities = []
+    for e in entities:
+        if not all(k in e for k in ("local_id", "name", "type")):
+            stats["dropped_entities_malformed"] += 1
+            continue
+        if e["type"] not in ALLOWED_ENTITY_TYPES:
+            stats["dropped_entities_invalid_type"] += 1
+            continue
+        cleaned_entities.append(e)
 
-                # Case 1: numeric IDs → invalid
-                if src.isdigit():
-                    src = None
-                if tgt.isdigit():
-                    tgt = None
+    # Rebuild id set
+    id_set = {e["local_id"] for e in cleaned_entities}
 
-                # Case 2: name instead of ID
-                if src not in id_map and src in name_map:
-                    src = name_map[src]
-                if tgt not in id_map and tgt in name_map:
-                    tgt = name_map[tgt]
+    # 2) Ensure at least one Regulation entity if inferable
+    has_regulation = any(e["type"] == "Regulation" for e in cleaned_entities)
+    if not has_regulation:
+        inferred_name = infer_regulation_from_text(text)
+        if inferred_name is not None:
+            new_id = "reg1"
+            # Avoid collision
+            suffix = 1
+            while new_id in id_set:
+                suffix += 1
+                new_id = f"reg{suffix}"
+            cleaned_entities.append({
+                "local_id": new_id,
+                "name": inferred_name,
+                "type": "Regulation",
+            })
+            id_set.add(new_id)
+            stats["injected_regulation_entities"] += 1
 
-                # Case 3: missing entity → auto-create
-                if src not in id_map:
-                    new_id = f"e{next_id_num}"
-                    next_id_num += 1
-                    id_map[new_id] = {"local_id": new_id, "name": src, "type": "Unknown"}
-                    entities.append(id_map[new_id])
-                    src = new_id
+    # 3) Drop malformed / invalid relations
+    cleaned_relations = []
+    for r in relations:
+        if not all(k in r for k in ("source_local_id", "target_local_id", "type")):
+            stats["dropped_relations_malformed"] += 1
+            continue
+        if r["type"] not in ALLOWED_RELATION_TYPES:
+            stats["dropped_relations_invalid_type"] += 1
+            continue
+        if r["source_local_id"] not in id_set:
+            stats["dropped_relations_missing_source"] += 1
+            continue
+        if r["target_local_id"] not in id_set:
+            stats["dropped_relations_missing_target"] += 1
+            continue
+        cleaned_relations.append(r)
 
-                if tgt not in id_map:
-                    new_id = f"e{next_id_num}"
-                    next_id_num += 1
-                    id_map[new_id] = {"local_id": new_id, "name": tgt, "type": "Unknown"}
-                    entities.append(id_map[new_id])
-                    tgt = new_id
+    obj["entities"] = cleaned_entities
+    obj["relations"] = cleaned_relations
 
-                # Write fixed relation
-                fixed_relations.append({
-                    "source_local_id": src,
-                    "target_local_id": tgt,
-                    "type": rel["type"]
-                })
+    if not cleaned_entities:
+        stats["chunks_no_entities_after_repair"] += 1
+    if not cleaned_relations:
+        stats["chunks_no_relations_after_repair"] += 1
 
-            obj["entities"] = entities
-            obj["relations"] = fixed_relations
-            repaired.append(obj)
+    return obj
 
-    with open(out_path, "w", encoding="utf-8") as f:
-        for obj in repaired:
-            f.write(json.dumps(obj) + "\n")
+def main():
+    stats = Counter()
+    if not INPUT_PATH.exists():
+        raise FileNotFoundError(f"Input JSONL not found: {INPUT_PATH}")
 
-    print("✅ Repair completed:", out_path)
+    with INPUT_PATH.open("r", encoding="utf-8") as fin, \
+         OUTPUT_PATH.open("w", encoding="utf-8") as fout:
+        for line_no, line in enumerate(fin, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                stats["lines_invalid_json"] += 1
+                continue
 
-repair_jsonl("./docs/reg_kg_triples.jsonl", "./graph-rag-semantic/reg_kg_triples_repaired.jsonl")
+            repaired = repair_record(obj, stats)
+            fout.write(json.dumps(repaired, ensure_ascii=False) + "\n")
+
+    with LOG_PATH.open("w", encoding="utf-8") as flog:
+        json.dump(stats, flog, indent=2)
+
+    print("Repair finished.")
+    print("Stats:")
+    for k, v in stats.items():
+        print(f" - {k}: {v}")
+
+if __name__ == "__main__":
+    main()
+# 

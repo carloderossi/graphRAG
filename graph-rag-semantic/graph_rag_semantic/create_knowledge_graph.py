@@ -1,22 +1,20 @@
 import os
 import traceback
-
-import numpy as np
 import json
-
 from pathlib import Path
 from typing import Dict, Any
 import ollama
 
 # --- CONFIGURATION ---
-# Using 7B class for reasoning and mxbai-embed-large
 MODELS = {
-    "embed": "mxbai-embed-large:latest", # nomic-embed-text --> does not support batch embedding 
+    "embed": "mxbai-embed-large:latest",  # unchanged
     "slm": "llama3.1:8b"
 }
+
 AI_REG_INDEX_PATH = Path("./ai_reg_semantic_index.json")
 OUTPUT_JSONL_PATH = Path("reg_kg_triples.jsonl")
 
+# Keep the JSON schema EXACTLY as-is (for tooling / validation)
 KG_SCHEMA = {
     "type": "object",
     "properties": {
@@ -48,85 +46,112 @@ KG_SCHEMA = {
     "required": ["entities", "relations"]
 }
 
-def call_llm_for_kg(chunk_text: str) -> Dict[str, Any]:
-    """
-    Call your LLM and return a dict with keys: entities, relations.
-    This is a stub – plug in your actual client (Ollama, Azure, etc.).
-    """
-    system_prompt = (
-        "You are an expert in European and Swiss AI regulation."
-        "You extract a structured knowledge graph from legal text."
-        "Focus on obligations, actors, AI systems, and how they relate to regulations."
-    )
+# --- COMPRESSED ONTOLOGY (for the prompt only) ---
 
-    user_prompt = f"""
-You are given a text chunk from an AI regulation (EU AI Act, Swiss FADP, Swiss AI Guidelines, CoE AI Convention).
+ENTITY_TYPES = [
+    "Actor",       # Provider, User, Member State, Deployer, etc.
+    "Authority",   # Commission, Board, AI Office, FDPIC, Council of Europe, etc.
+    "AI_System",
+    "Regulation",
+    "Obligation",
+    "Process",
+    "Concept",
+    "Document",
+    "Article",
+    "Chapter",
+]
 
-Extract entities and relations according to this schema:
+RELATION_TYPES = [
+    "OBLIGATION",   # Actor → Obligation/Process
+    "COMPLIANCE",   # Actor/System → Regulation
+    "GOVERNANCE",   # Regulation/Authority → Actor/System/Process
+    "SUPERVISION",  # Authority → Actor/System
+    "DEFINITION",   # Regulation → Concept/Process/Obligation
+    "STRUCTURAL",   # Article/Chapter/Process → higher-level structure
+    "REFERENCE",    # Article/Regulation → Article/Regulation
+    "RELATED_TO",   # fallback when nothing else fits
+]
 
-Entity types (type field):
-- AI_System
-- High_Risk_System
-- Provider
-- User
-- Regulation
-- Obligation
-- Process
-- Authority
+# --- PROMPTS (compressed, 2048-safe) ---
 
-Relation types (type field):
-- REQUIRES          (Regulation or Obligation → Obligation or Process)
-- MUST_COMPLY_WITH  (Provider/User/AI_System/High_Risk_System → Regulation or Obligation)
-- IS_DEFINED_IN     (Concept/Entity → Regulation)
-- IS_PART_OF        (Obligation/Process → Process)
-- APPLIES_TO        (Obligation → AI_System/High_Risk_System/Provider/User)
-- SUPERVISED_BY     (Provider/User/AI_System → Authority)
+SYSTEM_PROMPT = (
+    "You are an expert in European and Swiss AI regulation. "
+    "Extract entities and relations from legal text using the provided schema and ontology."
+)
 
-Return a single JSON object with this structure:
+EXTRACTION_PROMPT_TEMPLATE = """
+You extract a knowledge graph from legal text (EU AI Act, Swiss FADP, Swiss AI Guidelines, CoE AI Convention).
+
+Schema:
 {{
-  "entities": [
-    {{"local_id": "e1", "name": "...", "type": "..."}},
-    {{"local_id": "e2", "name": "...", "type": "..."}}
-  ],
-  "relations": [
-    {{"source_local_id": "e1", "target_local_id": "e2", "type": "..."}}
-  ]
+  "entities": [{{"local_id": "e1", "name": "...", "type": "..."}}],
+  "relations": [{{"source_local_id": "e1", "target_local_id": "e2", "type": "..."}}]
 }}
 
-Rules:
-- Use short, canonical names for entities (e.g. "Provider", "User", "High-risk AI system", "EU AI Act", "Swiss FADP").
-- If the regulation is clearly EU AI Act, include an entity of type "Regulation" named "EU AI Act".
-- If the regulation is clearly Swiss FADP, include an entity of type "Regulation" named "Swiss FADP".
-- Only use the relation types listed above.
-- If nothing meaningful can be extracted, return empty arrays for entities and relations.
+Entity types (pick closest):
+Actor, Authority, AI_System, Regulation, Obligation, Process, Concept, Document, Article, Chapter
 
-Text chunk:
+Relation types:
+OBLIGATION, COMPLIANCE, GOVERNANCE, SUPERVISION, DEFINITION, STRUCTURAL, REFERENCE, RELATED_TO
+
+Rules:
+- Always include the regulation entity (e.g. "EU AI Act", "Swiss FADP", "CoE AI Convention", "Swiss AI Guidelines") when clear.
+- Extract obligations even if implicit (“shall”, “must”, “is required to”).
+- Extract actor–action–object structure (who does what to whom/what).
+- Always produce at least one relation if any interaction exists.
+- Use RELATED_TO if no specific type fits.
+- Use short canonical names.
+
+Return only:
+{{
+  "entities": [...],
+  "relations": [...]
+}}
+
+Text:
 \"\"\"{chunk_text}\"\"\"
 """
 
-    # --- LLM call ---
+
+def call_llm_for_kg(chunk_text: str) -> Dict[str, Any]:
+    """
+    Call the SLM and return a dict with keys: entities, relations.
+    Uses compressed prompts and schema-constrained JSON.
+    """
+    user_prompt = EXTRACTION_PROMPT_TEMPLATE.format(chunk_text=chunk_text)
+
     try:
-        # Generate Summary with 7B Model
         response = ollama.generate(
-            model=MODELS["slm"], 
-            prompt=f"{system_prompt}\n\n{user_prompt}",
+            model=MODELS["slm"],
+            prompt=f"{SYSTEM_PROMPT}\n\n{user_prompt}",
             format=KG_SCHEMA,  # schema-constrained JSON
             options={"temperature": 0}
         )
+
         parsed = json.loads(response["response"])
-        entities = parsed.get("entities")
-        relations = parsed.get("relations")
+        entities = parsed.get("entities", []) or []
+        relations = parsed.get("relations", []) or []
+
+        # Safety: ensure lists
+        if not isinstance(entities, list):
+            entities = []
+        if not isinstance(relations, list):
+            relations = []
+
         return {
             "entities": entities,
             "relations": relations,
         }
+
     except Exception as e:
-        print(f"Get error for response {parsed}")
+        print("Error during KG extraction:")
         traceback.print_exc()
-        # exc_type, exc_value, exc_tb = sys.exc_info()
-        # print("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
-        raise e        
-    # ------------------------------------------------------
+        # In case of failure, return empty structures to keep pipeline running
+        return {
+            "entities": [],
+            "relations": [],
+        }
+
 
 def load_chunks(path: Path) -> Dict[str, Dict[str, Any]]:
     print(f"Loading chunks from {path}...")
@@ -134,21 +159,22 @@ def load_chunks(path: Path) -> Dict[str, Dict[str, Any]]:
         data = json.load(f)
     return data["chunks"]
 
+
 def main():
     print("\n=== 1. LOAD CHUNKS ===")
     chunks = load_chunks(AI_REG_INDEX_PATH)
     print(f"Successfully loaded {len(chunks)} chunks.")
 
-    i=0
     print("Calling SLM for generating Knowledge Graph...\n", end=" ", flush=True)
+
+    i = 0
     with OUTPUT_JSONL_PATH.open("w", encoding="utf-8") as out_f:
         for chunk_id, c in chunks.items():
             text = c.get("text", "")
             source = c.get("source", "")
+
             if i % 10 == 0:
-                print("•", end="", flush=True)   # bullet every 10
-                # clean up ollama cache
-                #ollama.generate(model=MODELS["slm"], prompt="", options={"reset": True}) # reset may not be supported
+                print("•", end="", flush=True)
             else:
                 print(".", end="", flush=True)
 
@@ -163,9 +189,10 @@ def main():
             }
 
             out_f.write(json.dumps(record, ensure_ascii=False) + "\n")
-            i=i+1
+            i += 1
 
     print(f"\nWrote KG triples to {OUTPUT_JSONL_PATH}.")
+
 
 if __name__ == "__main__":
     main()

@@ -61,5 +61,6 @@ start "" ollama serve
 REM ================================
 REM Run Qwen3 model
 REM ================================
-ollama run llama3.1:8b
+:: ollama run llama3.1:8b
+ollama llama3.1-16k:latest
 

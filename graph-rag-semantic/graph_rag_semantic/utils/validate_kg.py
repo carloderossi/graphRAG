@@ -162,4 +162,4 @@ def validate_kg_jsonl(path: str):
 if __name__ == "__main__":
     # validate_kg_jsonl("./docs/reg_kg_triples.jsonl")
     # validate_kg_jsonl("./docs/reg_kg_triples_repaired.jsonl")
-    validate_kg_jsonl("./docs/reg_kg_triples_rescued.jsonl")
+    validate_kg_jsonl("./docs/reg_kg_triples_v2.jsonl")

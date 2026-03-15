@@ -1,0 +1,4 @@
+FROM llama3.1:8b
+
+# Set context window to 16384 tokens (safe starting point for most Arc GPUs)
+PARAMETER num_ctx 16384

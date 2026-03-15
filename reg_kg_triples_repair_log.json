@@ -1,8 +1,0 @@
-{
-  "dropped_entities_invalid_type": 1241,
-  "dropped_relations_invalid_type": 1984,
-  "chunks_no_relations_after_repair": 681,
-  "chunks_no_entities_after_repair": 43,
-  "dropped_relations_missing_target": 2,
-  "injected_regulation_entities": 1
-}

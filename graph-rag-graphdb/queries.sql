@@ -5,6 +5,98 @@ CALL apoc.load.json("file:///ai_reg_semantic_index.json") YIELD value
 RETURN value LIMIT 1;
 
 /////////////////////////////////////////////////////////////////////////////////
+CREATE CONSTRAINT entity_id_unique IF NOT EXISTS
+FOR (e:Entity)
+REQUIRE e.id IS UNIQUE;
+
+/////////////////////////////////////////////////////////////////////////////////
+CALL apoc.load.json('file:///reg_kg_triples_v2.jsonl') YIELD value
+WITH value
+UNWIND value.entities AS e
+WITH value, e,
+     value.chunk_id AS chunk_id,
+     value.source   AS source
+MERGE (ent:Entity {id: chunk_id + ':' + e.local_id})
+SET ent.name     = e.name,
+    ent.type     = e.type,
+    ent.chunk_id = chunk_id,
+    ent.source   = source;
+
+/////////////////////////////////////////////////////////////////////////////////
+CALL apoc.load.json('file:///reg_kg_triples_v2.jsonl') YIELD value
+WITH value
+UNWIND value.relations AS r
+WITH value, r,
+     value.chunk_id AS chunk_id,
+     value.source   AS source
+MATCH (s:Entity {id: chunk_id + ':' + r.source_local_id})
+MATCH (t:Entity {id: chunk_id + ':' + r.target_local_id})
+MERGE (s)-[rel:RELATION {type: r.type}]->(t)
+SET rel.chunk_id = chunk_id,
+    rel.source   = source;
+
+/////////////////////////////////////////////////////////////////////////////////
+CALL apoc.load.json('file:///reg_kg_triples_v2.jsonl') YIELD value
+WITH value
+UNWIND value.relations AS r
+WITH value, r,
+     value.chunk_id AS chunk_id,
+     value.source   AS source
+MATCH (s:Entity {id: chunk_id + ':' + r.source_local_id})
+MATCH (t:Entity {id: chunk_id + ':' + r.target_local_id})
+CALL apoc.create.relationship(s, r.type, {chunk_id: chunk_id, source: source}, t) YIELD rel
+RETURN count(rel);
+
+/////////////////////////////////////////////////////////////////////////////////
+CALL apoc.load.json('file:///ai_reg_semantic_index.json') YIELD value
+WITH value.chunks AS chunks
+UNWIND keys(chunks) AS chunkId
+WITH chunkId, chunks[chunkId] AS c
+MERGE (ch:Chunk {id: chunkId})
+SET ch.text   = c.text,
+    ch.source = c.source,
+    ch.vec    = c.vec;   // Neo4j can store lists as properties
+
+
+/////////////////////////////////////////////////////////////////////////////////
+CALL apoc.load.json('file:///ai_reg_semantic_index.json') YIELD value
+WITH value.chunks AS chunks
+UNWIND keys(chunks) AS chunkId
+WITH chunkId, chunks[chunkId] AS c
+MATCH (ch:Chunk {id: chunkId})
+SET ch.embedding = c.vec;
+
+CALL apoc.load.json('file:///reg_kg_triples_v2.jsonl') YIELD value
+WITH value
+UNWIND value.entities AS e
+MATCH (c:Chunk {id: value.chunk_id})
+MATCH (ent:Entity {id: value.chunk_id + ':' + e.local_id})
+MERGE (c)-[:MENTIONS]->(ent);
+
+/////////////////////////////////////////////////////////////////////////////////
+MATCH (ch:Chunk)
+MATCH (e:Entity {chunk_id: ch.id})
+MERGE (ch)-[:HAS_ENTITY]->(e);
+
+// Counts
+MATCH (e:Entity) RETURN count(e) AS entities;
+MATCH ()-[r]->() RETURN count(r) AS relations;
+
+// Sample
+MATCH (e:Entity)-[r]->(f:Entity)
+RETURN e, r, f
+LIMIT 25;
+
+// Isolated nodes
+MATCH (e:Entity)
+WHERE NOT (e)--()
+RETURN count(e) AS isolated_entities;
+
+MATCH (c:Chunk)
+RETURN c.id, size(c.embedding) AS dim
+LIMIT 5;
+
+/////////////////////////////////////////////////////////////////////////////////
 // Chunk + embedding importer
 CALL apoc.load.json("file:///ai_reg_semantic_index.json") YIELD value
 

@@ -1,4 +1,18 @@
 FROM llama3.1:8b
 
-# Set context window to 16384 tokens (safe starting point for most Arc GPUs)
-PARAMETER num_ctx 16384
+# Safe for 18 GB VRAM
+PARAMETER num_ctx 8192
+
+# Enable RoPE scaling for longer context
+PARAMETER rope_scale 4
+
+# Improve reasoning stability
+PARAMETER temperature 0.2
+PARAMETER top_p 0.9
+
+# Optional: baked-in system prompt
+# SYSTEM """
+# You are a precise, schema-aware assistant optimized for dense knowledge graph extraction...
+# """
+
+# ollama create cdr-llama3.1:8b -f Modelfile

@@ -33,8 +33,8 @@ from neo4j import GraphDatabase
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 EMBED_MODEL   = "mxbai-embed-large:latest"
-LLM_MODEL     = "llama3.1:8b"           # answer generation — keep fast
-JUDGE_MODEL   = "phi4:14b" #"qwen2.5:32b-instruct-q4_K_M"  # stronger judge; fallback: "phi4:14b"
+LLM_MODEL     = "llama3.1-16k:latest" #     "llama3.1:8b" #       # answer generation — keep fast
+JUDGE_MODEL   = "phi4:14b" #"qwen2.5:14b"  # stronger judge; fallback: "phi4:14b"
 
 SEMANTIC_INDEX_PATH = Path("../docs/ai_reg_semantic_index.json")
 KG_PATH             = Path("../docs/reg_kg_triples_v2.jsonl")
@@ -256,7 +256,7 @@ Also provide:
   reason: one sentence explaining the verdict for THIS specific question
 
 Respond ONLY in valid JSON (no markdown fences, no preamble):
-{
+{{
   "faithfulness": <int>,
   "obligation_coverage": <int>,
   "multi_hop_depth": <int>,
@@ -264,7 +264,51 @@ Respond ONLY in valid JSON (no markdown fences, no preamble):
   "total": <sum of above 4>,
   "verdict": "<string>",
   "reason": "<string>"
-}"""
+}}"""
+
+
+# Maximum characters of the system answer fed into the judge prompt.
+# Keeps the total prompt short so the model has room to generate the full response.
+_ANSWER_TRUNCATE = 1200
+# Tokens reserved for the judge's JSON response.
+# 400 is generous for the schema; the format= constraint prevents preamble waste.
+_JUDGE_NUM_PREDICT = 400
+
+# JSON schema passed to ollama format= so the model outputs pure JSON,
+# no preamble, no markdown fences, guaranteed well-formed.
+_JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "faithfulness":        {"type": "integer", "minimum": 0, "maximum": 5},
+        "obligation_coverage": {"type": "integer", "minimum": 0, "maximum": 5},
+        "multi_hop_depth":     {"type": "integer", "minimum": 0, "maximum": 5},
+        "no_hallucination":    {"type": "integer", "minimum": 0, "maximum": 5},
+        "total":               {"type": "integer", "minimum": 0, "maximum": 20},
+        "verdict":             {"type": "string",  "enum": ["chroma_wins", "neo4j_wins", "draw"]},
+        "reason":              {"type": "string"}
+    },
+    "required": ["faithfulness", "obligation_coverage", "multi_hop_depth",
+                 "no_hallucination", "total", "verdict", "reason"]
+}
+
+
+def _extract_scores_regex(raw: str) -> dict | None:
+    """Fallback: pull integer fields out of a truncated/malformed JSON string."""
+    import re
+    fields = ["faithfulness", "obligation_coverage", "multi_hop_depth", "no_hallucination"]
+    scores = {}
+    for field in fields:
+        m = re.search(rf'"?{field}"?\s*:\s*(\d)', raw)
+        if m:
+            scores[field] = int(m.group(1))
+    if len(scores) < 4:          # too many fields missing — not usable
+        return None
+    scores["total"] = sum(scores[f] for f in fields)
+    # try to salvage verdict
+    vm = re.search(r'"verdict"\s*:\s*"([^"]+)"', raw)
+    scores["verdict"] = vm.group(1) if vm else "parse_error"
+    scores["reason"]  = "(truncated — scores recovered via regex)"
+    return scores
 
 
 def judge(obligation: dict, system_name: str, answer: str, retrieval: RetrievalResult) -> dict:
@@ -273,25 +317,40 @@ def judge(obligation: dict, system_name: str, answer: str, retrieval: RetrievalR
         f"Graph facts ({len(retrieval.graph_facts)} total): "
         + "; ".join(retrieval.graph_facts[:5])
     )
+    # Truncate the answer so the judge prompt stays short and num_predict
+    # is never the bottleneck. The scores only need the answer's gist.
+    answer_trunc = answer[:_ANSWER_TRUNCATE] + ("…" if len(answer) > _ANSWER_TRUNCATE else "")
+
     prompt = JUDGE_PROMPT.format(
         obligation_id=obligation["id"],
         obligation_text=obligation["text"],
         system_name=system_name,
         context_summary=context_summary,
-        answer=answer,
+        answer=answer_trunc,
     )
-    raw = ollama.generate(model=JUDGE_MODEL, prompt=prompt,
-                          options={"temperature": 0})["response"]
+    raw = ollama.generate(
+        model=JUDGE_MODEL,
+        prompt=prompt,
+        format=_JUDGE_SCHEMA,          # forces pure JSON, no preamble, no fences
+        options={"temperature": 0, "num_predict": _JUDGE_NUM_PREDICT},
+    )["response"]
     try:
-        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
-        scores = json.loads(raw)
+        # format= already guarantees valid JSON, but strip defensively anyway
+        cleaned = raw.strip()
+        scores = json.loads(cleaned)
         scores.setdefault("total", sum(scores.get(k, 0)
                                        for k in ["faithfulness", "obligation_coverage",
                                                   "multi_hop_depth", "no_hallucination"]))
         return scores
     except Exception:
+        # Try to rescue the integer scores from the truncated output
+        recovered = _extract_scores_regex(raw)
+        if recovered:
+            log.warning("Judge JSON truncated for %s / %s — scores recovered via regex",
+                        obligation["id"], system_name)
+            return recovered
         log.warning("Judge parse failed for %s / %s — raw: %s",
-                    obligation["id"], system_name, raw[:200])
+                    obligation["id"], system_name, raw[:300])
         return {"faithfulness": 0, "obligation_coverage": 0, "multi_hop_depth": 0,
                 "no_hallucination": 0, "total": 0,
                 "verdict": "parse_error", "reason": "judge response failed to parse"}

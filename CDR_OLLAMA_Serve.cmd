@@ -17,7 +17,7 @@ set OLLAMA_NUM_PARALLEL=1
 :: Default (2): Up to two models can be loaded simultaneously.
 :: When to lower it: If you want to conserve RAM/VRAM and only ever use one model, set it to 1
 :: When to raise it: If you frequently switch between models (e.g. Qwen3 and Llama3), keeping  avoids reload delays.
-set OLLAMA_MAX_LOADED_MODELS=2
+set OLLAMA_MAX_LOADED_MODELS=3
 
 ::set OLLAMA_MAX_QUEUE=128
 set OLLAMA_MAX_QUEUE=4
@@ -62,5 +62,6 @@ REM ================================
 REM Run Qwen3 model
 REM ================================
 :: ollama run llama3.1:8b
-ollama llama3.1-16k:latest
+::ollama run llama3.1-16k:latest
+ollama run phi4:14b
 

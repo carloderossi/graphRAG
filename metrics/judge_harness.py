@@ -14,7 +14,7 @@ Usage:
     python metrics/judge_harness.py EU_AIA_007
 
 Prerequisites:
-    - Ollama running with llama3.1:8b + mxbai-embed-large loaded
+    - Ollama running with llama3.1:8b, qwen2.5:32b-instruct-q4_K_M, and mxbai-embed-large loaded
     - ChromaDB persisted at graph-rag-semantic/chroma (run pipeline.py then create_chroma_db.cmd)
     - Neo4j running at bolt://localhost:7687 with data imported (run queries.cypher)
     - KG triples at docs/reg_kg_triples_v2.jsonl
@@ -33,15 +33,15 @@ from neo4j import GraphDatabase
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 EMBED_MODEL   = "mxbai-embed-large:latest"
-LLM_MODEL     = "llama3.1:8b"
-JUDGE_MODEL   = "llama3.1:8b"           # swap to a stronger model if available
+LLM_MODEL     = "llama3.1:8b"           # answer generation — keep fast
+JUDGE_MODEL   = "phi4:14b" #"qwen2.5:32b-instruct-q4_K_M"  # stronger judge; fallback: "phi4:14b"
 
 SEMANTIC_INDEX_PATH = Path("../docs/ai_reg_semantic_index.json")
 KG_PATH             = Path("../docs/reg_kg_triples_v2.jsonl")
-CHROMA_PATH         = Path("../graph-rag-semantic/chroma")
-GROUND_TRUTH_PATH   = Path("metrics/ground_truth_obligations.json")
-LOG_PATH            = Path("metrics/comparison_log.jsonl")
-SCORES_PATH         = Path("metrics/scores_summary.json")
+CHROMA_PATH         = Path("../graph-rag-semantic/graph_rag_semantic/chroma")
+GROUND_TRUTH_PATH   = Path("ground_truth_obligations.json")
+LOG_PATH            = Path("comparison_log.jsonl")
+SCORES_PATH         = Path("scores_summary.json")
 
 NEO4J_URI  = "bolt://localhost:7687"
 NEO4J_USER = "neo4j"

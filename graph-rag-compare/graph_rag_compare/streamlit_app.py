@@ -1,11 +1,11 @@
 import streamlit as st
-from viz.pyvis_graph import render_graph
-from harness.comparison_runner import ComparisonRunner
-from harness.metrics import evaluate
-from retrievers.file_retriever import FileRetriever
-from retrievers.graphdb_retriever import GraphDBRetriever
+from graph_rag_compare.viz.pyvis_graph import render_graph
+from graph_rag_compare.harness.comparison_runner import ComparisonRunner
+from graph_rag_compare.harness.metrics import evaluate
+from graph_rag_compare.retrievers.file_retriever import FileRetriever
+from graph_rag_compare.retrievers.graphdb_retriever import GraphDBRetriever
 
-from viz.diff_view import node_diff, chunk_diff
+from graph_rag_compare.viz.diff_view import node_diff, chunk_diff
 
 st.set_page_config(layout="wide")
 

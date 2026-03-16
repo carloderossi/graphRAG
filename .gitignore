@@ -3,3 +3,5 @@
 /graph-rag-semantic/.venv
 /graph-rag-semantic/uv.lock
 /graph-rag-semantic/dist/
+/metrics/Linked*
+

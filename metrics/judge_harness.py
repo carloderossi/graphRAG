@@ -33,7 +33,7 @@ from neo4j import GraphDatabase
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 EMBED_MODEL   = "mxbai-embed-large:latest"
-LLM_MODEL     = "llama3.1-16k:latest" #     "llama3.1:8b" #       # answer generation — keep fast
+LLM_MODEL     = "llama3.1:8b" # "llama3.1-16k:latest" #           # answer generation — keep fast
 JUDGE_MODEL   = "phi4:14b" #"qwen2.5:14b"  # stronger judge; fallback: "phi4:14b"
 
 SEMANTIC_INDEX_PATH = Path("../docs/ai_reg_semantic_index.json")

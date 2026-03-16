@@ -1,0 +1,43 @@
+{
+  "total_questions": 28,
+  "overall": {
+    "chroma_wins": 4,
+    "neo4j_wins": 9,
+    "draws": 15
+  },
+  "by_tier": {
+    "A": {
+      "n": 16,
+      "chroma_avg_score": 10.81,
+      "neo4j_avg_score": 11.81,
+      "avg_chunk_overlap_jaccard": 0.74,
+      "chroma_avg_graph_facts": 10.38,
+      "neo4j_avg_graph_facts": 12.56
+    },
+    "B": {
+      "n": 8,
+      "chroma_avg_score": 13.5,
+      "neo4j_avg_score": 14.0,
+      "avg_chunk_overlap_jaccard": 0.79,
+      "chroma_avg_graph_facts": 9.0,
+      "neo4j_avg_graph_facts": 10.5
+    },
+    "C": {
+      "n": 3,
+      "chroma_avg_score": 8.0,
+      "neo4j_avg_score": 9.67,
+      "avg_chunk_overlap_jaccard": 0.78,
+      "chroma_avg_graph_facts": 15.0,
+      "neo4j_avg_graph_facts": 25.0
+    },
+    "D": {
+      "n": 1,
+      "chroma_avg_score": 13.0,
+      "neo4j_avg_score": 17.0,
+      "avg_chunk_overlap_jaccard": 0.67,
+      "chroma_avg_graph_facts": 11.0,
+      "neo4j_avg_graph_facts": 14.0
+    }
+  },
+  "showcase_finding": "Tier A: both systems draw \u2014 confirms shared embedding quality. Tier B: Chroma leads if community search is wired up; otherwise draw. Tier C: Neo4j wins via multi-hop Cypher \u2014 the graph DB overhead is justified here. Tier D: both struggle \u2014 cross-document entity merging is the missing capability in both."
+}

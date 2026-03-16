@@ -1,4 +1,5 @@
 import json
+import numpy as np
 from collections import defaultdict
 import chromadb
 import ollama
@@ -120,13 +121,52 @@ def filter_graph_facts(neighbors, actor_terms):
             facts.append(f"{s_name} -[{n['type']}]-> {t_name}")
     return facts
 
+# ------------------------------
+# GLOBAL COMMUNITY ROUTER
+#
+# Step 1 of the two-tier search: compare the query embedding against each
+# community's summary embedding and return the id of the best match.
+# This is the "global search" tier built by pipeline.py but never wired up
+# at query time — until now.
+# ------------------------------
+
+def community_route(q_emb: list) -> int:
+    q = np.array(q_emb)
+    best_cid, best_score = None, -1.0
+
+    for c in communities:
+        c_emb = c.get("community_embedding")
+        if not c_emb:
+            continue
+        cv = np.array(c_emb)
+        score = float(np.dot(q, cv) / (np.linalg.norm(q) * np.linalg.norm(cv)))
+        if score > best_score:
+            best_score = score
+            best_cid = c["community_id"]
+
+    return best_cid
+
+
 def graph_aware_retrieve(query, top_k=5):
     q_emb = embed(query)
 
-    res = collection.query(
-        query_embeddings=[q_emb],
-        n_results=top_k
-    )
+    # Step 1: global search — find the best-matching community theme
+    best_cid = community_route(q_emb)
+
+    if best_cid is not None:
+        # Step 2: local search — only within that community's chunks
+        member_ids = community_by_id[best_cid]["member_ids"]
+        res = collection.query(
+            query_embeddings=[q_emb],
+            n_results=top_k,
+            where={"chunk_id": {"$in": member_ids}}
+        )
+    else:
+        # Fallback: no community embeddings present — flat search
+        res = collection.query(
+            query_embeddings=[q_emb],
+            n_results=top_k
+        )
 
     hits = []
     for i in range(len(res["ids"][0])):
@@ -144,7 +184,8 @@ def graph_aware_retrieve(query, top_k=5):
             "community_id": community_id
         })
 
-    return hits
+    # Return both hits and the routed community id so ask() can surface it
+    return hits, best_cid
 
 # ------------------------------
 # COMMUNITY SUMMARIES
@@ -182,26 +223,35 @@ Format:
 """
 
 def extract_actor_terms(question: str):
-    # very simple heuristic; you can extend this
     candidates = ["provider", "user", "deployer", "high-risk", "ai system", "swiss actors"]
     return [c for c in candidates if c.lower() in question.lower()]
 
 def ask(query, top_k=5, debug=True):
     actor_terms = extract_actor_terms(query)
-    hits = graph_aware_retrieve(query, top_k=top_k)
+
+    # graph_aware_retrieve now returns (hits, routed_community_id)
+    hits, routed_cid = graph_aware_retrieve(query, top_k=top_k)
 
     if debug:
+        # Pull the title out before the f-string — dict literals inside
+        # f-string braces cause a SyntaxError in Python < 3.12.
+        routed_summary = get_community_summary(routed_cid) or {}
+        routed_title = routed_summary.get("title", "?")
+        print(f"\n=== Routed to community {routed_cid} ({routed_title}) ===")
         print("\n=== Retrieved Chunks ===")
         for h in hits:
             print(f"- {h['meta']['chunk_id']}")
 
-    # community summaries
-    community_ids = {h["community_id"] for h in hits if h["community_id"] is not None}
+    # Always seed community context with the routed community,
+    # then add any others that appear in the retrieved chunks.
+    community_ids = {routed_cid} if routed_cid is not None else set()
+    community_ids |= {h["community_id"] for h in hits if h["community_id"] is not None}
+
     community_summaries = {
         cid: get_community_summary(cid) for cid in community_ids
     }
 
-    # graph facts (filtered)
+    # graph facts (filtered to obligation-type relations involving known actors)
     all_graph_facts = []
     for h in hits:
         facts = filter_graph_facts(h["neighbors"], actor_terms or ["provider", "user", "deployer"])
@@ -220,6 +270,7 @@ def ask(query, top_k=5, debug=True):
     community_text = "\n\n".join(
         f"[Community {cid}] title={meta.get('title')}\nsummary={meta.get('summary')}\nfindings={meta.get('findings')}"
         for cid, meta in community_summaries.items()
+        if meta
     )
 
     graph_text = "\n".join(all_graph_facts)
@@ -250,7 +301,7 @@ Provide a structured, obligation-focused answer.
 # ------------------------------
 
 if __name__ == "__main__":
-    QUESTION = "What obligations does the EU AI Act impose on Providers?" 
+    QUESTION = "What obligations does the EU AI Act impose on Providers?"
     print(f"Question: {QUESTION}")
     print("\nAnswer:")
-    print(ask("What obligations does the EU AI Act impose on Providers?"))
+    print(ask(QUESTION))

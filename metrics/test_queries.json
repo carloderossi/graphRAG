@@ -1,0 +1,152 @@
+{
+  "version": "1.0",
+  "description": "Curated queries mapped to ground-truth obligations, organised by tier. Use these as the benchmark question set for the Chroma vs Neo4j comparison.",
+  "tiers": {
+    "A": {
+      "label": "Flat retrieval — should be a draw",
+      "rationale": "Questions answerable from a single chunk. High Jaccard expected. Both systems should score equally. Use these as the control group.",
+      "queries": [
+        {
+          "id": "Q_A_01",
+          "obligation_id": "EU_AIA_001",
+          "question": "What is the risk management system obligation on providers of high-risk AI systems under Article 9 of the EU AI Act?",
+          "expected_keywords": ["risk management system", "lifecycle", "continuous", "iterative"]
+        },
+        {
+          "id": "Q_A_02",
+          "obligation_id": "EU_AIA_005",
+          "question": "What human oversight requirements must providers build into high-risk AI systems under Article 14?",
+          "expected_keywords": ["human oversight", "natural persons", "human-machine interface"]
+        },
+        {
+          "id": "Q_A_03",
+          "obligation_id": "EU_AIA_010",
+          "question": "What obligations does a deployer of a high-risk AI system have under Article 26?",
+          "expected_keywords": ["deployer", "instructions for use", "human oversight", "competence"]
+        },
+        {
+          "id": "Q_A_04",
+          "obligation_id": "CH_FADP_001",
+          "question": "What data processing principles does the Swiss FADP impose on controllers?",
+          "expected_keywords": ["lawfulness", "proportionality", "purpose limitation", "anonymisation"]
+        },
+        {
+          "id": "Q_A_05",
+          "obligation_id": "CH_FADP_007",
+          "question": "What data security breach notification obligations exist under the Swiss FADP?",
+          "expected_keywords": ["FDPIC", "notification", "breach", "controller", "processor"]
+        },
+        {
+          "id": "Q_A_06",
+          "obligation_id": "EU_AIA_012",
+          "question": "When must users be informed that they are interacting with an AI system under EU AI Act Article 50?",
+          "expected_keywords": ["transparency", "natural persons", "informed", "AI system disclosure"]
+        },
+        {
+          "id": "Q_A_07",
+          "obligation_id": "CH_AIG_001",
+          "question": "What human responsibility obligations do the Swiss AI Guidelines impose on the Federal Administration?",
+          "expected_keywords": ["human responsibility", "accountability", "autonomous decision"]
+        }
+      ]
+    },
+    "B": {
+      "label": "Community/thematic — Chroma advantage (if community search is wired up)",
+      "rationale": "Thematic questions spanning multiple chunks and one or two documents. The correct answer lives in a regulatory theme cluster. Chroma community embeddings should surface the theme first; Neo4j should retrieve via graph expansion but may miss cross-chunk thematic context.",
+      "queries": [
+        {
+          "id": "Q_B_01",
+          "obligation_id": "EU_AIA_007",
+          "question": "What is the complete set of obligations a provider of a high-risk AI system must fulfill before placing it on the EU market?",
+          "expected_keywords": ["quality management", "technical documentation", "conformity assessment", "CE marking", "EU database", "declaration of conformity"],
+          "note": "Tests compound Article 16 chain. Chroma community covering 'Provider Obligations' should surface all sub-items."
+        },
+        {
+          "id": "Q_B_02",
+          "obligation_id": "EU_AIA_008",
+          "question": "What elements must a provider's quality management system cover under Article 17 of the EU AI Act?",
+          "expected_keywords": ["quality management", "written policies", "post-market monitoring", "serious incident", "accountability"]
+        },
+        {
+          "id": "Q_B_03",
+          "obligation_id": "EU_AIA_013",
+          "question": "What obligations apply to providers of general-purpose AI models under Article 53?",
+          "expected_keywords": ["GPAI", "technical documentation", "copyright policy", "training data summary", "downstream providers"]
+        },
+        {
+          "id": "Q_B_04",
+          "obligation_id": "CH_FADP_006",
+          "question": "Under the Swiss FADP, when must a controller carry out a data protection impact assessment and what must it cover?",
+          "expected_keywords": ["DPIA", "high risk", "new technologies", "fundamental rights", "description of processing"]
+        },
+        {
+          "id": "Q_B_05",
+          "obligation_id": "EU_AIA_011",
+          "question": "What fundamental rights impact assessment must a public body deployer perform before deploying a high-risk AI system?",
+          "expected_keywords": ["fundamental rights impact assessment", "public body", "prior to deploying", "complaint mechanism", "human oversight"]
+        },
+        {
+          "id": "Q_B_06",
+          "obligation_id": "CH_AIG_004",
+          "question": "How do the Swiss AI Guidelines require federal bodies to ensure FADP compliance when using AI systems that process personal data?",
+          "expected_keywords": ["FADP compliance", "data minimisation", "federal administration", "personal data"],
+          "note": "Cross-document bridge: Swiss AI Guidelines to FADP. Medium difficulty."
+        }
+      ]
+    },
+    "C": {
+      "label": "Multi-hop relational — Neo4j advantage",
+      "rationale": "Questions that require chaining across multiple entities or obligation nodes. The answer is only fully correct if the system traverses Provider → OBLIGATION → ConformityAssessment → REQUIRES → CE marking, or similar chains. Neo4j's native Cypher graph traversal should outperform the flat KG sidecar.",
+      "queries": [
+        {
+          "id": "Q_C_01",
+          "obligation_id": "EU_AIA_007",
+          "question": "What is the complete compliance chain a provider must follow from developing a high-risk AI system to placing it on the market — tracing all intermediate steps and their article references?",
+          "expected_keywords": ["Article 17", "Article 43", "conformity assessment", "Article 47", "CE marking", "Article 49", "EU database"],
+          "note": "THE key multi-hop test: Art.16 → Art.17 → Art.43 → Art.47 → Art.48 → Art.49"
+        },
+        {
+          "id": "Q_C_02",
+          "obligation_id": "EU_AIA_009",
+          "question": "Under what circumstances does a distributor or importer become subject to provider obligations for a high-risk AI system, and what obligations does this trigger?",
+          "expected_keywords": ["substantial modification", "trademark", "Article 25", "Article 16", "provider obligations"],
+          "note": "Role-shift multi-hop: Distributor → substantial modification → becomes Provider → Art.16 obligations"
+        },
+        {
+          "id": "Q_C_03",
+          "obligation_id": "EU_AIA_014",
+          "question": "What additional obligations apply to providers of general-purpose AI models identified as posing systemic risk, and who do they report serious incidents to?",
+          "expected_keywords": ["systemic risk", "adversarial testing", "serious incident", "AI Office", "cybersecurity", "Article 55"],
+          "note": "Multi-hop: GPAI → systemic risk designation → additional obligations (Art.55) → reporting to AI Office"
+        }
+      ]
+    },
+    "D": {
+      "label": "Cross-document bridge — hard for both",
+      "rationale": "Questions requiring facts from two different source documents that were chunked separately. Neither system will naturally bridge these unless cross-document entity merging was done. Neo4j has a theoretical advantage if entities are globally merged; in practice both should struggle, making this the most informative tier for the showcase finding.",
+      "queries": [
+        {
+          "id": "Q_D_01",
+          "obligation_id": "CH_AIG_006",
+          "question": "A Swiss company that develops AI-embedded products and exports them to EU markets — what EU AI Act obligations do they face, and does the Switzerland-EU MRA affect conformity assessment?",
+          "expected_keywords": ["EU AI Act", "MRA", "conformity assessment", "Swiss company", "market access"],
+          "note": "Cross-doc: Swiss_AI_Guidelines (MRA context) + EU_AI_Act (conformity obligations). Hardest query."
+        },
+        {
+          "id": "Q_D_02",
+          "obligation_id": "CH_FADP_005",
+          "question": "A Swiss bank uses an AI system for automated credit scoring decisions. What obligations arise under both the Swiss FADP and the EU AI Act?",
+          "expected_keywords": ["automated individual decision", "FADP Art. 21", "high-risk AI", "deployer", "human review"],
+          "note": "Cross-doc bridge: FADP Art. 21 (automated decision) + EU AI Act high-risk deployer obligations"
+        },
+        {
+          "id": "Q_D_03",
+          "obligation_id": "CH_AIG_006",
+          "question": "Compare how the Swiss FADP and the EU AI Act each address transparency obligations when AI systems make or support individual decisions.",
+          "expected_keywords": ["FADP Art. 21", "EU AI Act transparency", "Art. 13", "Art. 50", "inform data subject"],
+          "note": "Hardest cross-doc comparison: FADP transparency + EU AIA Art.13 + Art.50"
+        }
+      ]
+    }
+  }
+}

@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 
 EMBED_MODEL = "mxbai-embed-large:latest"
-LLM_MODEL = "llama3.1:8b"
+LLM_MODEL = "llama3.1-16k:latest" #"llama3.1:8b"
 
 current_file = Path(__file__).resolve()
 
@@ -56,5 +56,5 @@ def get_docs_folder():
     return current_file.parents[3] / "docs"
 
 SEMANTIC_INDEX_PATH = get_docs_folder() / "ai_reg_semantic_index.json"
-KG_PATH = get_docs_folder() / "reg_kg_triples_repaired.jsonl"
+KG_PATH = get_docs_folder() / "reg_kg_triples_v2.jsonl"
 CHROMA_PATH = get_chroma_db_path()
